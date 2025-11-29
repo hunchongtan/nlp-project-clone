@@ -22,7 +22,11 @@ By identifying and manipulating these biased components, UniBias can reduce bias
 
 ### 1.3 Original UniBias Methodology
 
-The original UniBias method was designed for **classification tasks** (e.g., sentiment analysis, natural language inference) and uses a three-criterion approach to identify biased components:
+The original UniBias method was designed for **tasks with discrete outputs** (e.g., sentiment analysis, natural language inference, question answering, text classification) and uses a three-criterion approach to identify biased components. According to the original implementation, UniBias supports:
+- Sentiment Analysis (SST-2, SST-5, CR, MR)
+- Natural Language Inference (MNLI, RTE)
+- Question Answering (COPA, ARC, MMLU)
+- Text Classification (AG News, TREC, WiC)
 
 1. **Bias Criterion**: The component shows disproportionate preference for certain labels
 2. **Relatedness Criterion**: The component is meaningfully related to the task
@@ -48,17 +52,32 @@ Instead, it works **inference-time** by manipulating the model's internal repres
 
 ## 2. Adapting UniBias for Cultural Bias Detection
 
-### 2.1 Challenge: From Classification to Generation
+### 2.1 Challenge: From Discrete Outputs to Open-Ended Generation
 
-The original UniBias was designed for classification tasks where:
-- Outputs are discrete labels (e.g., positive/negative sentiment)
-- Bias can be measured by label distribution
-- Ground truth labels exist for validation
+The original UniBias was designed for tasks with **discrete outputs** where:
+- Outputs are constrained choices (e.g., sentiment labels, answer choices, classification categories)
+- Bias can be measured by output distribution across these discrete options
+- Ground truth labels or answer keys exist for validation
+- Examples include: selecting from answer choices (QA), choosing sentiment labels, picking inference labels
+- **For QA tasks**: UniBias uses prompts like "Question: ... Answer choices: A) ... B) ... C) ... D) ..." and measures logits for tokens like 'A', 'B', 'C', 'D' or the answer text tokens
+
+**Alternative Approach (Not Taken)**: We could have reframed our cultural bias task as a multiple-choice format:
+- Prompt: "People should be free to decide whom they marry. Choose the best continuation:"
+- Answer A: "Individual freedom is a fundamental right." (WEIRD)
+- Answer B: "Family approval is important in marriage decisions." (non-WEIRD)
+- Then measure bias by logits for 'A'/'B' tokens, following UniBias exactly
+
+**Why We Chose Open-Ended Generation Instead**:
+- More natural: Cultural values are expressed through free-form reasoning, not binary choices
+- Richer analysis: Reveals implicit assumptions that might not appear in constrained choices
+- Real-world relevance: Actual model usage involves open-ended generation, not multiple-choice
+- However, this made bias measurement more complex and may have contributed to mixed results
 
 Our task involves **open-ended text generation** where:
-- Outputs are free-form text continuations
-- Bias is cultural orientation (WEIRD vs non-WEIRD)
-- No explicit labels exist—we must define what constitutes bias
+- Outputs are free-form text continuations (not constrained to a fixed set)
+- Bias is cultural orientation (WEIRD vs non-WEIRD) that must be measured semantically
+- No explicit labels exist—we must define what constitutes bias through reference passages
+- The model can generate any text, making bias measurement more complex
 
 ### 2.2 Our Adaptation Strategy
 
@@ -89,9 +108,9 @@ These prompts are designed to elicit continuations that reveal implicit cultural
 
 #### 2.2.2 Bias Measurement: Semantic Embeddings
 
-**Challenge**: In generation tasks, we can't use label distributions. We need to measure cultural orientation in free-form text.
+**Challenge**: In open-ended generation tasks, we can't use discrete output distributions. We need to measure cultural orientation in free-form text.
 
-**Original UniBias**: Used logit differences between label tokens.
+**Original UniBias**: Used logit differences between discrete output tokens (e.g., answer choices, label tokens). For question answering, it measures bias toward certain answer options. For classification, it measures bias toward certain labels.
 
 **Our Adaptation**: 
 - **Semantic Bias Scoring**: Use Sentence Transformers to embed generated text
@@ -350,18 +369,20 @@ This shows an even stronger reduction in WEIRD bias for family-related prompts.
 
 | Aspect | Original UniBias | Our Adaptation |
 |--------|------------------|----------------|
-| Task Type | Classification | Text Generation |
-| Bias Measurement | Label distribution | Semantic similarity |
+| Task Type | Discrete outputs (QA, classification, NLI) | Open-ended text generation |
+| Bias Measurement | Output distribution (labels/answers) | Semantic similarity to references |
 | Evaluation | Accuracy + Calibration | Semantic bias scores |
 | Head Identification | Three-criterion approach | Logit-based delta analysis |
 | Mitigation | Masking/Scaling heads | Complete head masking |
 | Results | Consistent bias reduction | Mixed results |
 
 **Key Differences**:
-- Original UniBias had **ground truth labels** for validation
-- Our adaptation must **define bias** through reference passages
-- Generation tasks are **more complex** than classification
-- Text quality becomes a **confounding factor**
+- Original UniBias works with **discrete outputs** (answer choices, labels) where bias is measured by distribution
+- Our adaptation works with **free-form generation** where outputs are unconstrained
+- Original UniBias has **ground truth** (correct answers/labels) for validation
+- Our adaptation must **define bias** through reference passages (no ground truth)
+- Open-ended generation is **more complex** than discrete output tasks
+- Text quality becomes a **confounding factor** in generation
 
 ### 5.4 Methodological Insights
 
@@ -379,7 +400,7 @@ This shows an even stronger reduction in WEIRD bias for family-related prompts.
 
 ### 6.1 Main Findings
 
-1. **UniBias Can Be Adapted**: The methodology successfully adapts from classification to generation tasks, with measurable effects at the logit level.
+1. **UniBias Can Be Adapted**: The methodology successfully adapts from discrete-output tasks (QA, classification) to open-ended generation tasks, with measurable effects at the logit level.
 
 2. **Head Identification Works**: We identified 10 attention heads that contribute to WEIRD cultural bias, with effects measurable across 71 prompts.
 
@@ -399,17 +420,22 @@ This shows an even stronger reduction in WEIRD bias for family-related prompts.
 
 ### 6.3 Future Directions
 
-1. **Partial Masking Experiments**: Test scaling heads by 0.5x, 0.7x, etc., instead of complete masking.
+1. **Reframe as Multiple-Choice Task**: Test the alternative approach of framing cultural bias as a multiple-choice question answering task (like COPA/ARC), where:
+   - Each prompt has WEIRD vs non-WEIRD answer choices
+   - Measure bias by logits for answer tokens (A/B or answer text tokens)
+   - This would align exactly with original UniBias methodology and might yield more consistent results
 
-2. **FFN Neuron Analysis**: Extend analysis to identify and mask biased FFN neurons, as in original UniBias.
+2. **Partial Masking Experiments**: Test scaling heads by 0.5x, 0.7x, etc., instead of complete masking.
 
-3. **Classifier-Based Scoring**: Train a classifier to label outputs as WEIRD/non-WEIRD for cross-validation.
+3. **FFN Neuron Analysis**: Extend analysis to identify and mask biased FFN neurons, as in original UniBias.
 
-4. **Human Evaluation**: Have human evaluators rate outputs for cultural bias and compare with automated scores.
+4. **Classifier-Based Scoring**: Train a classifier to label outputs as WEIRD/non-WEIRD for cross-validation.
 
-5. **Larger Models**: Test on GPT-2 medium/large or other models to see if bias patterns scale.
+5. **Human Evaluation**: Have human evaluators rate outputs for cultural bias and compare with automated scores.
 
-6. **Prompt Engineering**: Experiment with different prompt formulations to maximize bias detection sensitivity.
+6. **Larger Models**: Test on GPT-2 medium/large or other models to see if bias patterns scale.
+
+7. **Prompt Engineering**: Experiment with different prompt formulations to maximize bias detection sensitivity.
 
 ---
 
